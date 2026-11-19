@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="SmartSpend - Student Expense Manager for B.Tech students. Safe-to-Spend daily allowance, voice quick-add, offline insights, and budgeting.">
+    <meta name="theme-color" content="#6c63ff">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="SmartSpend">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' https://www.gstatic.com https://*.firebaseio.com https://*.googleapis.com data: blob:; script-src 'self' 'unsafe-inline' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com;">
+
+    <title>SmartSpend — Student Expense & Budget Manager</title>
+
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+
+    <!-- Inline script to set theme immediately without flashing -->
+    <script>
+        (function() {
+            try {
+                var raw = localStorage.getItem('smartSpend.v2');
+                if (raw) {
+                    var parsed = JSON.parse(raw);
+                    var theme = (parsed && parsed.settings && parsed.settings.theme) || 'system';
+                    if (theme === 'system') {
+                        theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+                    }
+                    document.documentElement.setAttribute('data-theme', theme);
+                }
+            } catch (e) {}
+        })();
+    </script>
+
+    <!-- External CSS -->
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Firebase Config (null by default; switches to cloud mode when populated) -->
+    <script src="firebase-config.js"></script>
+
+    <!-- Modular Vanilla JS files loaded in dependency order with defer -->
+    <script defer src="js/constants.js"></script>
+    <script defer src="js/utils.js"></script>
+    <script defer src="js/i18n.js"></script>
+    <script defer src="js/storage.js"></script>
+    <script defer src="js/insights.js"></script>
+    <script defer src="js/parser.js"></script>
+    <script defer src="js/charts.js"></script>
+    <script defer src="js/ui.js"></script>
+    <script defer src="js/demo.js"></script>
+    <script defer src="js/adapters/local.js"></script>
+    <script defer src="js/adapters/firebase.js"></script>
+    <script defer src="js/repo.js"></script>
+    <script defer src="js/auth.js"></script>
+    <script defer src="js/router.js"></script>
+    <script defer src="js/features/upi-parser.js"></script>
+    <script defer src="js/features/requests.js"></script>
+    <script defer src="js/features/challenges.js"></script>
+    <script defer src="js/features/alerts.js"></script>
+    <script defer src="js/features/heatmap.js"></script>
+    <script defer src="js/features/whatif.js"></script>
+    <script defer src="js/features/xp.js"></script>
+    <script defer src="js/features/goal-matching.js"></script>
+    <script defer src="js/views/auth-view.js"></script>
+    <script defer src="js/views/student-view.js"></script>
+    <script defer src="js/views/parent-view.js"></script>
+    <script defer src="js/views/child-detail-view.js"></script>
+    <script defer src="js/views/settings-view.js"></script>
+    <script defer src="script.js"></script>
+</head>
+
+<body>
+    <noscript>
+        <div class="noscript-banner">
+            ⚠️ SmartSpend requires JavaScript to track student expenses, daily allowances, and smart insights. Please enable JavaScript in your browser.
+        </div>
+    </noscript>
+
+    <!-- Demo Mode Active Banner -->
+    <div id="demoBanner" class="demo-banner" hidden>
+        <div class="container demo-banner-content">
+            <span>🎮 <strong>Local Demo Mode</strong> — pre-linked student (Aarav) &amp; parent (Mr. Sharma) accounts running offline.</span>
+            <button type="button" class="btn btn-sm btn-outline-light" id="exitDemoBtn">Exit Demo Mode</button>
+        </div>
+    </div>
+
+    <!-- Parent Monitoring Transparent Banner (shown only when student is linked with a parent) -->
+    <div id="parentMonitoringBanner" class="parent-monitoring-banner" hidden></div>
+
+    <!-- Global Application Navigation Bar -->
+    <nav class="main-navbar" id="mainNavbar">
+        <div class="container navbar-content">
+            <a href="#/app" class="nav-brand" id="navBrandLogo">
+                <span class="logo-icon" aria-hidden="true">₹</span>
+                <span>SmartSpend</span>
+                <span class="brand-badge" id="navRoleBadge">Student</span>
+            </a>
+
+            <ul class="nav-links" id="mainNavLinks">
+                <li><a href="#/app" class="nav-link active" id="navDashboardLink">📊 Dashboard</a></li>
+                <li><a href="#/link" class="nav-link" id="navLinkParentLink">🤝 Link Parent</a></li>
+                <li><a href="#/parent" class="nav-link" id="navFamilyLink" hidden>👨‍👩‍👧 Family</a></li>
+                <li><a href="#/settings" class="nav-link" id="navSettingsLink">⚙️ Settings</a></li>
+            </ul>
+
+            <div class="navbar-controls">
+                <div class="header-date" id="currentDate" style="font-size: 0.85rem; color: var(--text-secondary);">
+                    Today
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="navLangToggleBtn" title="Switch Language (भाषा)">
+                    🇮🇳 हिन्दी
+                </button>
+                <button type="button" class="icon-btn" id="installAppBtn" title="Install SmartSpend as App" aria-label="Install App" hidden>
+                    📲 <span class="btn-text">Install</span>
+                </button>
+                <button type="button" class="icon-btn" id="themeToggleBtn" title="Toggle Theme" aria-label="Toggle Theme">
+                    🌙
+                </button>
+                <div class="user-nav-pill" id="navUserPill">
+                    <div class="user-nav-avatar" id="navUserAvatar">A</div>
+                    <span id="navUserName">Aarav</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-danger" id="navSignOutBtn" title="Sign Out">
+                    Sign Out
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Top-Level View Containers (Single-Page-App Views Managed by SS.router) -->
+    <div id="authViewContainer" class="app-view" hidden></div>
+    <div id="parentViewContainer" class="app-view" hidden></div>
+    <div id="childDetailViewContainer" class="app-view" hidden></div>
+    <div id="linkViewContainer" class="app-view" hidden></div>
+    <div id="settingsViewContainer" class="app-view" hidden></div>
+
+    <!-- Student Dashboard View Container -->
+    <div id="studentViewContainer" class="app-view active-view">
+        <!-- Quick Action Shortcuts Bar -->
+        <div class="container" style="margin-top: 1.2rem;">
+            <div class="student-quick-actions-bar">
+                <button type="button" class="quick-action-chip" id="openUpiImporterBtn">
+                    📱 <strong>Paste UPI SMS</strong>
+                </button>
+                <button type="button" class="quick-action-chip" id="openSimulatorBtn">
+                    🤔 <strong>Can I Afford It?</strong>
+                </button>
+                <button type="button" class="quick-action-chip" id="openRequestMoneyBtn">
+                    💬 <strong>Ask Parent for Funds</strong>
+                </button>
+            </div>
+        </div>
+
+        <!-- Student Gamification XP Card -->
+        <div class="container" style="margin-bottom: 1.2rem;">
+            <div class="card student-xp-card" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1rem 1.4rem;">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div style="font-size: 2rem;">🌱</div>
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <strong id="studentLevelBadge" style="font-size: 1.05rem; color: var(--primary-color);">Saver Sprout</strong>
+                            <span class="badge badge-secondary" style="font-size: 0.75rem;">Level 1</span>
+                        </div>
+                        <div style="width: 180px; height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden; margin-top: 4px;">
+                            <div id="studentXpFill" style="width: 45%; height: 100%; background: var(--primary-color);"></div>
+                        </div>
+                    </div>
+                </div>
+                <div style="flex: 1; min-width: 260px; font-size: 0.88rem; color: var(--text-secondary); border-left: 2px solid var(--border-color); padding-left: 1rem;">
+                    💡 <strong>Daily Student Tip:</strong> <span id="studentDailyTipText">Track recurring mess fees on the 1st to see your real daily safe spend.</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Year-at-a-Glance Heatmap Card -->
+        <div class="container" style="margin-bottom: 1.2rem;">
+            <div class="card heatmap-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+                    <h3 style="margin: 0; font-size: 1.05rem;">🔥 Year-at-a-Glance Spending Heatmap</h3>
+                    <span class="text-muted" style="font-size: 0.8rem;">Daily expense frequency</span>
+                </div>
+                <div id="studentSpendingHeatmap" style="overflow-x: auto; padding: 0.4rem 0;"></div>
+            </div>
+        </div>
+
+        <main class="container">
+
+        <!-- Welcome Section with Month Navigator & Actions -->
+        <section class="welcome-section">
+            <div class="welcome-text">
+                <h2>Student Dashboard</h2>
+                <p>Track your student allowance, daily safe spending, and savings goals.</p>
+            </div>
+
+            <div class="welcome-controls">
+                <!-- Month Navigator -->
+                <div class="month-navigator" role="group" aria-label="Month Navigation">
+                    <button type="button" class="month-nav-btn" id="prevMonthBtn" aria-label="Previous Month">‹</button>
+                    <span class="month-nav-label" id="selectedMonthLabel">October 2026</span>
+                    <button type="button" class="month-nav-btn" id="nextMonthBtn" aria-label="Next Month" disabled>›</button>
+                </div>
+
+                <div class="welcome-buttons">
+                    <button type="button" class="btn btn-primary" id="addExpenseBtn" title="Shortcut: Press 'N'">
+                        + Add Expense
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="printReportBtn" title="Print or save as PDF">
+                        🖨️ Print
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Add in one line (Text + Voice) -->
+        <section class="quick-add-section card">
+            <div class="quick-add-header">
+                <div class="quick-add-title">
+                    <span class="quick-add-icon">⚡</span>
+                    <div>
+                        <h3>Quick Add</h3>
+                        <p>Type or speak in English or Hinglish (e.g., <em>"chai 20"</em>, <em>"auto 40 yesterday"</em>, <em>"pizza 450 with 3 friends"</em>)</p>
+                    </div>
+                </div>
+                <span class="shortcut-hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd></span>
+            </div>
+
+            <form id="quickAddForm" class="quick-add-form" onsubmit="return false;">
+                <div class="quick-add-input-wrapper">
+                    <input
+                        type="text"
+                        id="quickAddInput"
+                        placeholder="Try: 'chai 20', 'metro 40 yesterday', 'books 650'..."
+                        autocomplete="off"
+                    >
+                    <button type="button" class="mic-btn" id="voiceAddBtn" title="Speak expense (Voice Recognition)" aria-label="Speak expense">
+                        🎙️
+                    </button>
+                    <button type="button" class="btn btn-primary quick-parse-btn" id="parseQuickAddBtn">
+                        Parse
+                    </button>
+                </div>
+            </form>
+
+            <!-- Quick Add Live Preview Chip Row -->
+            <div id="quickAddPreview" class="quick-add-preview" hidden>
+                <div class="preview-chips">
+                    <span class="chip chip-title" id="previewTitle">Chai</span>
+                    <span class="chip chip-amount" id="previewAmount">₹20</span>
+                    <span class="chip chip-category" id="previewCategory">Food</span>
+                    <span class="chip chip-date" id="previewDate">Today</span>
+                    <span class="chip chip-split" id="previewSplit" hidden>Split</span>
+                </div>
+                <div class="preview-actions">
+                    <button type="button" class="btn btn-sm btn-primary" id="confirmQuickAddBtn">✓ Save</button>
+                    <button type="button" class="btn btn-sm btn-secondary" id="editQuickAddBtn">✏️ Edit in Form</button>
+                    <button type="button" class="btn btn-sm btn-ghost" id="cancelQuickAddBtn">Cancel</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Safe-to-Spend Today Hero Tile -->
+        <section class="safe-hero-card card" id="safeHeroCard">
+            <div class="safe-hero-main">
+                <div class="safe-hero-badge" id="safeHeroBadge">Safe-to-Spend Today</div>
+                <div class="safe-hero-amount" id="safeHeroAmount">₹0</div>
+                <p class="safe-hero-message" id="safeHeroMessage">Set your monthly budget to unlock daily spending limits.</p>
+                <div class="safe-hero-formula" id="safeHeroFormula">
+                    Daily safe allowance = Remaining Budget ÷ Remaining Days in Month
+                </div>
+            </div>
+            <div class="safe-hero-chart">
+                <div class="sparkline-header">
+                    <span>Daily Spending Trajectory</span>
+                    <span id="safeDailyLimitLabel"></span>
+                </div>
+                <div id="dailySparkline" class="daily-sparkline-container" aria-label="Daily spending sparkline"></div>
+            </div>
+        </section>
+
+        <!-- Monthly Budget Card -->
+        <section class="budget-section card">
+            <div class="budget-heading">
+                <div>
+                    <h3>Monthly Budget</h3>
+                    <p id="budgetMonthDesc">Spending limit for the selected month.</p>
+                </div>
+
+                <div class="budget-heading-actions">
+                    <button class="btn btn-secondary" id="editBudgetBtn">
+                        Set Budget
+                    </button>
+                    <button class="btn btn-secondary btn-sm" id="toggleCategoryBudgetsBtn">
+                        Category Caps ▾
+                    </button>
+                </div>
+            </div>
+
+            <!-- Set/Edit Budget Row -->
+            <div class="budget-input-row" id="budgetForm" hidden>
+                <label for="budgetInput">Monthly budget (₹)</label>
+                <input
+                    type="number"
+                    id="budgetInput"
+                    min="1"
+                    step="1"
+                    placeholder="Enter monthly budget"
+                >
+                <button class="btn btn-primary" id="saveBudgetBtn">
+                    Save
+                </button>
+                <button class="btn btn-secondary" id="cancelBudgetBtn">
+                    Cancel
+                </button>
+            </div>
+
+            <!-- Collapsible Category Budgets Panel -->
+            <div class="category-budgets-panel" id="categoryBudgetsPanel" hidden>
+                <div class="category-budgets-header">
+                    <h4>Monthly Category Caps (Optional)</h4>
+                    <p>Set spending limits on individual categories to get alerted when reaching 80% or 100%.</p>
+                </div>
+                <div class="category-budgets-grid" id="categoryBudgetsGrid">
+                    <!-- Populated dynamically -->
+                </div>
+                <div class="category-budgets-actions">
+                    <button type="button" class="btn btn-sm btn-primary" id="saveCategoryBudgetsBtn">Save Category Caps</button>
+                </div>
+            </div>
+
+            <div class="budget-progress-info">
+                <span>Monthly spending</span>
+                <strong id="budgetSummary">₹0 of ₹0</strong>
+            </div>
+
+            <div
+                class="progress-track"
+                role="progressbar"
+                aria-label="Monthly budget used"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+                id="budgetProgress"
+            >
+                <div class="progress-fill" id="budgetProgressFill"></div>
+            </div>
+
+            <p class="budget-message" id="budgetMessage">
+                Set a budget to start tracking your spending.
+            </p>
+        </section>
+
+        <!-- Summary Cards Grid -->
+        <section class="summary-grid">
+
+            <article class="summary-card card">
+                <div class="summary-icon purple">₹</div>
+                <p>Total Expenses</p>
+                <h3 id="totalExpenses">₹0</h3>
+                <span class="summary-note">All recorded expenses</span>
+            </article>
+
+            <article class="summary-card card">
+                <div class="summary-icon green">↗</div>
+                <p id="thisMonthLabel">This Month</p>
+                <h3 id="monthlyExpenses">₹0</h3>
+                <span class="summary-note">Spent this month</span>
+            </article>
+
+            <article class="summary-card card">
+                <div class="summary-icon orange">◷</div>
+                <p>Today's Spending</p>
+                <h3 id="todayExpenses">₹0</h3>
+                <span class="summary-note">Spent today</span>
+            </article>
+
+            <article class="summary-card card">
+                <div class="summary-icon blue">✓</div>
+                <p>Remaining Budget</p>
+                <h3 id="remainingBudget">₹0</h3>
+                <span class="summary-note">Budget left this month</span>
+            </article>
+
+        </section>
+
+        <!-- Smart Insights & Money Health Score -->
+        <section class="insights-health-grid">
+            <!-- Money Health Score Card -->
+            <article class="card health-card">
+                <div class="section-heading">
+                    <div>
+                        <h3>Money Health Score</h3>
+                        <p>Adherence, consistency &amp; financial balance.</p>
+                    </div>
+                </div>
+
+                <div class="health-score-container">
+                    <div class="health-score-badge" id="healthScoreBadge">--</div>
+                    <div class="health-score-details">
+                        <strong class="health-rating" id="healthRating">Good</strong>
+                        <p class="health-tip" id="healthTip">Log regular expenses to calculate your personalized financial discipline score.</p>
+                    </div>
+                </div>
+
+                <div class="health-bars" id="healthBars">
+                    <div class="health-metric">
+                        <span>Budget Adherence</span>
+                        <div class="metric-track"><div class="metric-fill" id="metricBudgetFill" style="width:0%"></div></div>
+                    </div>
+                    <div class="health-metric">
+                        <span>Consistency</span>
+                        <div class="metric-track"><div class="metric-fill" id="metricConsistencyFill" style="width:0%"></div></div>
+                    </div>
+                    <div class="health-metric">
+                        <span>Category Balance</span>
+                        <div class="metric-track"><div class="metric-fill" id="metricBalanceFill" style="width:0%"></div></div>
+                    </div>
+                </div>
+            </article>
+
+            <!-- Smart Insights Card -->
+            <article class="card insights-card">
+                <div class="section-heading">
+                    <div>
+                        <h3>Smart Insights</h3>
+                        <p>AI-free offline intelligence for student budgeting.</p>
+                    </div>
+                </div>
+
+                <div class="insights-list" id="insightsList">
+                    <div class="empty-state">Add 3+ expenses to unlock projections, forecasts, and anomaly warnings.</div>
+                </div>
+            </article>
+        </section>
+
+        <!-- Student Life Hub (Recurring, Savings Goals, Streaks & Badges) -->
+        <section class="student-hub-grid">
+            <!-- Recurring Subscriptions -->
+            <article class="card hub-card">
+                <div class="hub-card-header">
+                    <div>
+                        <h3>Recurring Spends</h3>
+                        <p>Mess dues, recharge &amp; subscriptions (auto-applied monthly).</p>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-secondary" id="addRecurringBtn">+ Add</button>
+                </div>
+                <div class="recurring-list" id="recurringList">
+                    <div class="empty-state-sm">No recurring expenses set up yet.</div>
+                </div>
+            </article>
+
+            <!-- Savings Goals -->
+            <article class="card hub-card">
+                <div class="hub-card-header">
+                    <div>
+                        <h3>Savings Goals</h3>
+                        <p>Save for laptops, trips, or certifications without mixing expenses.</p>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-secondary" id="addGoalBtn">+ New Goal</button>
+                </div>
+                <div class="goals-list" id="goalsList">
+                    <div class="empty-state-sm">No active savings goals. Create one to stay motivated!</div>
+                </div>
+            </article>
+
+            <!-- Streaks & Badges -->
+            <article class="card hub-card">
+                <div class="hub-card-header">
+                    <div>
+                        <h3>Streaks &amp; Achievements</h3>
+                        <p>Consistent tracking builds financial mastery.</p>
+                    </div>
+                </div>
+                <div class="streaks-display">
+                    <div class="streak-item">
+                        <span class="streak-icon">🔥</span>
+                        <div>
+                            <strong id="currentStreakCount">0 Days</strong>
+                            <small>Logging Streak</small>
+                        </div>
+                    </div>
+                    <div class="streak-item">
+                        <span class="streak-icon">🛡️</span>
+                        <div>
+                            <strong id="noSpendDaysCount">0 Days</strong>
+                            <small>No-Spend Days This Month</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="badges-grid" id="badgesGrid">
+                    <!-- Populated dynamically from constants -->
+                </div>
+            </article>
+        </section>
+         
+
+        <!-- Add / Edit Expense Form Section -->
+        <section class="card expense-form-section" id="expenseFormSection" hidden>
+            <div class="section-heading">
+                <div>
+                    <h3 id="expenseFormHeading">Add New Expense</h3>
+                    <p id="expenseFormSubheading">Enter the details of your spending.</p>
+                </div>
+                <button
+                    type="button"
+                    class="close-btn"
+                    id="closeExpenseFormBtn"
+                    aria-label="Close expense form"
+                >
+                    ×
+                </button>
+            </div>
+
+            <form id="expenseForm" novalidate>
+                <div class="form-grid">
+
+                    <div class="form-group">
+                        <label for="expenseTitle">Expense Name *</label>
+                        <input
+                            type="text"
+                            id="expenseTitle"
+                            placeholder="e.g. Lunch, Xerox, Hostel Mess"
+                            maxlength="80"
+                            required
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="expenseAmount">Amount (₹) *</label>
+                        <input
+                            type="number"
+                            id="expenseAmount"
+                            placeholder="e.g. 150"
+                            min="0.01"
+                            max="1000000"
+                            step="0.01"
+                            required
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="expenseCategory">Category *</label>
+                        <select id="expenseCategory" required>
+                            <!-- Populated dynamically via SS.ui.populateCategorySelects() -->
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="expenseDate">Date *</label>
+                        <input type="date" id="expenseDate" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="expenseSplit">Split with Friends (Optional)</label>
+                        <input
+                            type="number"
+                            id="expenseSplit"
+                            placeholder="e.g. 2 (if split among 2 friends + you)"
+                            min="0"
+                            max="20"
+                            step="1"
+                        >
+                    </div>
+
+                    <div class="form-group full-width">
+                        <label for="expenseNote">Notes (Optional)</label>
+                        <input
+                            type="text"
+                            id="expenseNote"
+                            placeholder="Add short note (e.g., treated batchmates, borrowed from Aryan)"
+                            maxlength="200"
+                        >
+                    </div>
+
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" id="saveExpenseBtn">
+                        Save Expense
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-secondary"
+                        id="resetExpenseFormBtn"
+                    >
+                        Clear
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Charts Section -->
+        <section class="charts-grid">
+
+            <article class="card chart-card">
+                <div class="section-heading">
+                    <div>
+                        <h3>Spending by Category</h3>
+                        <p>See where your money goes for the selected month.</p>
+                    </div>
+                </div>
+
+                <div class="category-chart" id="categoryChart">
+                    <div class="empty-state">
+                        No expense data available yet.
+                    </div>
+                </div>
+
+                <div class="category-legend" id="categoryLegend"></div>
+            </article>
+
+            <article class="card chart-card">
+                <div class="section-heading">
+                    <div>
+                        <h3>Monthly Trend (6 Months)</h3>
+                        <p>Your spending trend vs. budget limit line.</p>
+                    </div>
+                </div>
+
+                <div
+                    class="monthly-chart"
+                    id="monthlyChart"
+                    aria-label="Monthly spending chart"
+                >
+                    <div class="empty-state">
+                        Your monthly chart will appear here.
+                    </div>
+                </div>
+            </article>
+
+        </section>
+
+        <!-- Expense History -->
+        <section class="card history-section">
+            <div class="section-heading history-heading">
+                <div>
+                    <h3>Transaction History</h3>
+                    <p>Search, filter, edit, and export your student spending.</p>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="exportFilteredCsvBtn">
+                    📥 Export CSV
+                </button>
+            </div>
+
+            <!-- Search and Filters -->
+            <div class="filters">
+                <div class="search-box">
+                    <label class="visually-hidden" for="searchExpense">
+                        Search expenses
+                    </label>
+                    <input
+                        type="search"
+                        id="searchExpense"
+                        placeholder="Search expenses, notes, categories..."
+                    >
+                </div>
+
+                <div>
+                    <label class="visually-hidden" for="filterCategory">
+                        Filter by category
+                    </label>
+                    <select id="filterCategory">
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+
+                <div>
+                    <label class="visually-hidden" for="filterMonth">
+                        Filter by month
+                    </label>
+                    <select id="filterMonth">
+                        <option value="">All Time</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Expenses Table -->
+            <div class="table-wrapper">
+                <table class="expense-table">
+                    <thead>
+                        <tr>
+                            <th>Expense</th>
+                            <th>Category</th>
+                            <th>Date</th>
+                            <th>Amount</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+
+                    <tbody id="expenseTableBody">
+                        <tr>
+                            <td colspan="5" class="empty-table">
+                                No expenses added yet.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="history-footer">
+                <div class="history-stats">
+                    <span id="expenseCount">0 expenses</span>
+                    <span id="filteredTotalLabel" class="filtered-total"></span>
+                </div>
+                <div class="history-actions">
+                    <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        id="clearFiltersBtn"
+                    >
+                        Clear Filters
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Helpful Tip -->
+        <section class="tip-card">
+            <div class="tip-icon">💡</div>
+            <div>
+                <h3>Student Money Tip</h3>
+                <p id="studentTipText">
+                    Record your expenses daily right when you pay. Even saving ₹50 a day on impulse snacks gives you ₹1,500 extra at month-end!
+                </p>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container footer-content">
+            <p>SmartSpend · Smart financial habits for students.</p>
+            <p class="privacy-note">🔒 100% Private &amp; Offline — Your financial data never leaves your device.</p>
+        </div>
+    </footer>
+    </div> <!-- /#studentViewContainer -->
+
+    <!-- Mobile Bottom Navigation Bar -->
+    <nav class="mobile-bottom-nav" id="mobileBottomNav">
+        <ul class="bottom-nav-list">
+            <li>
+                <a href="#/app" class="bottom-nav-item active" id="mobDashboardLink">
+                    <span class="nav-icon">📊</span>
+                    <span>Dashboard</span>
+                </a>
+            </li>
+            <li>
+                <a href="#/link" class="bottom-nav-item" id="mobLinkParentLink">
+                    <span class="nav-icon">🤝</span>
+                    <span>Link</span>
+                </a>
+            </li>
+            <li>
+                <a href="#/parent" class="bottom-nav-item" id="mobFamilyLink" hidden>
+                    <span class="nav-icon">👨‍👩‍👧</span>
+                    <span>Family</span>
+                </a>
+            </li>
+            <li>
+                <a href="#/settings" class="bottom-nav-item" id="mobSettingsLink">
+                    <span class="nav-icon">⚙️</span>
+                    <span>Settings</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- Notification Toast -->
+    <div
+        id="notification"
+        class="notification"
+        role="status"
+        aria-live="polite"
+        hidden
+    ></div>
+
+    <!-- Settings & Data Drawer Modal -->
+    <div id="settingsModal" class="modal-backdrop" hidden>
+        <div class="modal-dialog card" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+            <div class="modal-header">
+                <h3 id="settingsModalTitle">Data &amp; Preferences</h3>
+                <button type="button" class="close-btn" id="closeSettingsBtn" aria-label="Close Settings">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-group">
+                    <h4>Appearance</h4>
+                    <div class="theme-selection">
+                        <button type="button" class="btn btn-sm btn-secondary theme-opt" data-set-theme="light">☀️ Light</button>
+                        <button type="button" class="btn btn-sm btn-secondary theme-opt" data-set-theme="dark">🌙 Dark</button>
+                        <button type="button" class="btn btn-sm btn-secondary theme-opt" data-set-theme="system">💻 System</button>
+                    </div>
+                </div>
+
+                <div class="settings-group">
+                    <h4>Data Safety &amp; Backup</h4>
+                    <p class="settings-desc">Export a complete backup or import from a previously saved JSON file.</p>
+                    <div class="settings-btn-row">
+                        <button type="button" class="btn btn-secondary btn-sm" id="exportJsonBtn">💾 Export JSON Backup</button>
+                        <label class="btn btn-secondary btn-sm file-upload-label">
+                            📂 Import JSON
+                            <input type="file" id="importJsonInput" accept=".json" hidden>
+                        </label>
+                        <button type="button" class="btn btn-secondary btn-sm" id="exportAllCsvBtn">📊 Export All CSV</button>
+                    </div>
+                    <small id="backupStatusText" class="backup-status">Last backup: Never</small>
+                </div>
+
+                <div class="settings-group">
+                    <h4>Demo &amp; Testing</h4>
+                    <p class="settings-desc">Load realistic 90-day student transactions for demoing and evaluation.</p>
+                    <div class="settings-btn-row">
+                        <button type="button" class="btn btn-secondary btn-sm" id="loadDemoBtn">🎮 Load Demo Data</button>
+                    </div>
+                </div>
+
+                <div class="settings-group danger-zone">
+                    <h4>Danger Zone</h4>
+                    <p class="settings-desc">Erase all transactions, budgets, goals, and reset to a clean state.</p>
+                    <button type="button" class="btn btn-danger btn-sm" id="clearAllDataBtn">🗑️ Clear All Data</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- First-time Onboarding Modal -->
+    <div id="onboardingModal" class="modal-backdrop" hidden>
+        <div class="modal-dialog card onboarding-dialog" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+            <div class="onboarding-step" id="onboardingStep1">
+                <span class="step-icon">🎓</span>
+                <h3 id="onboardingTitle">Welcome to SmartSpend!</h3>
+                <p>The student expense manager that tells you what you can <strong>safely spend today</strong>, not just what you spent yesterday.</p>
+                <div class="form-group" style="margin: 1.5rem 0;">
+                    <label for="onboardingBudgetInput">What is your monthly allowance / budget? (₹)</label>
+                    <input type="number" id="onboardingBudgetInput" placeholder="e.g. 8000" min="500" step="100">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-primary" id="onboardingNextBtn">Get Started →</button>
+                    <button type="button" class="btn btn-secondary" id="onboardingDemoBtn">Try with Demo Data</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Adding/Editing Recurring Expenses -->
+    <div id="recurringModal" class="modal-backdrop" hidden>
+        <div class="modal-dialog card" role="dialog" aria-modal="true" aria-labelledby="recurringModalTitle">
+            <div class="modal-header">
+                <h3 id="recurringModalTitle">Add Recurring Expense</h3>
+                <button type="button" class="close-btn" id="closeRecurringBtn" aria-label="Close">×</button>
+            </div>
+            <form id="recurringForm">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="recTitle">Expense Name *</label>
+                        <input type="text" id="recTitle" placeholder="e.g. Mess Fee, Jio Recharge, Netflix" required maxlength="80">
+                    </div>
+                    <div class="form-group">
+                        <label for="recAmount">Amount (₹) *</label>
+                        <input type="number" id="recAmount" min="1" step="1" placeholder="e.g. 3200" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="recCategory">Category *</label>
+                        <select id="recCategory" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="recDay">Day of Month (1 - 28) *</label>
+                        <input type="number" id="recDay" min="1" max="28" value="1" required>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary">Save Recurring Expense</button>
+                    <button type="button" class="btn btn-secondary" id="cancelRecurringBtn">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal for Adding/Editing Savings Goals -->
+    <div id="goalModal" class="modal-backdrop" hidden>
+        <div class="modal-dialog card" role="dialog" aria-modal="true" aria-labelledby="goalModalTitle">
+            <div class="modal-header">
+                <h3 id="goalModalTitle">New Savings Goal</h3>
+                <button type="button" class="close-btn" id="closeGoalBtn" aria-label="Close">×</button>
+            </div>
+            <form id="goalForm">
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="goalName">Goal Name *</label>
+                        <input type="text" id="goalName" placeholder="e.g. Coding Laptop, Post-Exam Trip" required maxlength="80">
+                    </div>
+                    <div class="form-group">
+                        <label for="goalTarget">Target Amount (₹) *</label>
+                        <input type="number" id="goalTarget" min="100" step="100" placeholder="e.g. 30000" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="goalSaved">Currently Saved (₹)</label>
+                        <input type="number" id="goalSaved" min="0" step="50" placeholder="0" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="goalDeadline">Target Deadline (Optional)</label>
+                        <input type="date" id="goalDeadline">
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary">Save Goal</button>
+                    <button type="button" class="btn btn-secondary" id="cancelGoalBtn">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- UPI SMS Paste Importer Modal -->
+    <div id="upiModal" class="modal-backdrop" hidden>
+        <div class="modal-dialog card" role="dialog" aria-modal="true" aria-labelledby="upiModalTitle">
+            <div class="modal-header">
+                <h3 id="upiModalTitle">📱 Paste UPI / Bank SMS</h3>
+                <button type="button" class="close-btn" id="closeUpiBtn" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="font-size: 0.88rem; margin-bottom: 0.8rem;">
+                    Paste any transactional SMS from SBI, HDFC, ICICI, Paytm, PhonePe, or Google Pay. SmartSpend extracts amount, merchant, and category automatically.
+                </p>
+                <div class="form-group">
+                    <label for="upiTextarea">Paste SMS Text *</label>
+                    <textarea id="upiTextarea" class="form-control" rows="4" placeholder="e.g. Sent Rs.180.00 from HDFC Bank to CHAI POINT on 18-11-26 via UPI. Ref 432109876543."></textarea>
+                </div>
+                <div style="margin: 0.8rem 0;">
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="parseUpiBtn">⚡ Parse Transaction</button>
+                </div>
+                <div id="upiPreview" class="upi-preview-box" hidden style="margin-top: 1rem; padding: 1rem; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-color);"></div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-primary" id="saveUpiExpenseBtn">Add Expense</button>
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('upiModal').hidden=true">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- "Can I Afford It?" Simulator Modal -->
+    <div id="simulatorModal" class="modal-backdrop" hidden>
+        <div class="modal-dialog card" role="dialog" aria-modal="true" aria-labelledby="simulatorModalTitle">
+            <div class="modal-header">
+                <h3 id="simulatorModalTitle">🤔 "Can I Afford It?" Simulator</h3>
+                <button type="button" class="close-btn" id="closeSimulatorBtn" aria-label="Close">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" style="font-size: 0.88rem; margin-bottom: 1rem;">
+                    Test a planned purchase before spending. SmartSpend recalculates your daily allowance and checks if savings goals will be delayed.
+                </p>
+                <div class="form-group">
+                    <label for="simAmountInput">Planned Purchase Amount (₹) *</label>
+                    <input type="number" id="simAmountInput" class="form-control" min="1" step="1" placeholder="e.g. 1200" required>
+                </div>
+                <div class="form-group" style="margin-top: 0.8rem;">
+                    <label for="simCategorySelect">Category</label>
+                    <select id="simCategorySelect" class="form-control">
+                        <option value="Food & Dining">Food & Dining</option>
+                        <option value="Hostel & Mess">Hostel & Mess</option>
+                        <option value="Academics & Books">Academics & Books</option>
+                        <option value="Travel & Commute">Travel & Commute</option>
+                        <option value="Entertainment">Entertainment</option>
+                        <option value="Shopping & Gadgets">Shopping & Gadgets</option>
+                        <option value="Personal & Health">Personal & Health</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <button type="button" class="btn btn-primary" id="runSimBtn">Simulate Impact →</button>
+                </div>
+                <div id="simResultBox" class="sim-result-container" hidden style="margin-top: 1.2rem;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Money Request Modal -->
+    <div id="requestMoneyModal" class="modal-backdrop" hidden>
+        <div class="modal-dialog card" role="dialog" aria-modal="true" aria-labelledby="requestMoneyModalTitle">
+            <div class="modal-header">
+                <h3 id="requestMoneyModalTitle">💬 Request Funds from Parent</h3>
+                <button type="button" class="close-btn" id="closeRequestMoneyBtn" aria-label="Close">×</button>
+            </div>
+            <form id="requestMoneyForm">
+                <div class="modal-body">
+                    <p class="text-muted" style="font-size: 0.88rem; margin-bottom: 1rem;">
+                        Send a transparent allowance request to your linked parent with a clear purpose.
+                    </p>
+                    <div class="form-group">
+                        <label for="reqTypeSelect">Request Purpose *</label>
+                        <select id="reqTypeSelect" class="form-control" required>
+                            <option value="extra_money">Extra Monthly Allowance</option>
+                            <option value="emergency">Emergency / Medical Expense</option>
+                            <option value="exam_fee">Semester / Exam / Books Fee</option>
+                            <option value="project">Project / Lab Components</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-top: 0.8rem;">
+                        <label for="reqAmountInput">Amount Needed (₹) *</label>
+                        <input type="number" id="reqAmountInput" class="form-control" min="10" step="10" placeholder="e.g. 1500" required>
+                    </div>
+                    <div class="form-group" style="margin-top: 0.8rem;">
+                        <label for="reqReasonInput">Explanation / Note *</label>
+                        <input type="text" id="reqReasonInput" class="form-control" maxlength="120" placeholder="e.g. Arduino kit and sensors for mini-project" required>
+                    </div>
+                </div>
+                <div class="modal-actions" style="margin-top: 1.2rem;">
+                    <button type="submit" class="btn btn-primary">Send Request</button>
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('requestMoneyModal').hidden=true">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</body>
+</html>

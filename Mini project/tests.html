@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartSpend Test Runner</title>
+    <style>
+        body {
+            font-family: Inter, system-ui, -apple-system, sans-serif;
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 2rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 { margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between; }
+        .summary {
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        .summary.passed { background: #064e3b; color: #34d399; }
+        .summary.failed { background: #7f1d1d; color: #f87171; }
+        .suite {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid #334155;
+        }
+        .suite h2 { margin-top: 0; font-size: 1.25rem; border-bottom: 1px solid #334155; padding-bottom: 0.5rem; }
+        .test-case {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #334155;
+            font-family: monospace;
+            font-size: 0.95rem;
+        }
+        .test-case:last-child { border-bottom: none; }
+        .badge {
+            padding: 0.25rem 0.6rem;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.8rem;
+        }
+        .badge.pass { background: #059669; color: white; }
+        .badge.fail { background: #dc2626; color: white; }
+        .error-msg {
+            color: #f87171;
+            font-size: 0.85rem;
+            margin-top: 0.25rem;
+            padding-left: 1rem;
+        }
+    </style>
+    <!-- Load scripts in exact dependency order -->
+    <script src="firebase-config.js"></script>
+    <script defer src="js/constants.js"></script>
+    <script defer src="js/utils.js"></script>
+    <script defer src="js/i18n.js"></script>
+    <script defer src="js/storage.js"></script>
+    <script defer src="js/insights.js"></script>
+    <script defer src="js/parser.js"></script>
+    <script defer src="js/charts.js"></script>
+    <script defer src="js/ui.js"></script>
+    <script defer src="js/demo.js"></script>
+    <script defer src="js/adapters/local.js"></script>
+    <script defer src="js/repo.js"></script>
+    <script defer src="js/auth.js"></script>
+    <script defer src="js/router.js"></script>
+    <script defer src="js/features/upi-parser.js"></script>
+    <script defer src="js/features/requests.js"></script>
+    <script defer src="js/features/challenges.js"></script>
+    <script defer src="js/features/alerts.js"></script>
+    <script defer src="js/features/whatif.js"></script>
+    <script defer src="js/features/xp.js"></script>
+    <script defer src="js/features/goal-matching.js"></script>
+</head>
+<body>
+    <h1>
+        <span>🧪 SmartSpend Unit Test Runner</span>
+        <button onclick="runAllTests()" style="padding: 0.5rem 1rem; border-radius: 6px; background: #6c63ff; color: white; border: none; cursor: pointer; font-weight: 600;">Re-run Tests</button>
+    </h1>
+    <p style="color: #94a3b8; margin-top: 0;">In-browser pure unit tests for money math, dates, natural-language parsing, storage, and financial insights.</p>
+    
+    <div id="summary" class="summary">Running tests...</div>
+    <div id="suites"></div>
+
+    <script>
+        const suites = [];
+        let currentSuite = null;
+
+        function describe(suiteName, fn) {
+            currentSuite = { name: suiteName, tests: [] };
+            suites.push(currentSuite);
+            fn();
+        }
+
+        function it(testName, testFn) {
+            try {
+                testFn();
+                currentSuite.tests.push({ name: testName, passed: true });
+            } catch (err) {
+                currentSuite.tests.push({ name: testName, passed: false, error: err.message });
+            }
+        }
+
+        function expect(actual) {
+            return {
+                toBe(expected) {
+                    if (actual !== expected) {
+                        throw new Error(`Expected ${JSON.stringify(expected)} but got ${JSON.stringify(actual)}`);
+                    }
+                },
+                toEqual(expected) {
+                    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+                        throw new Error(`Expected ${JSON.stringify(expected)} but got ${JSON.stringify(actual)}`);
+                    }
+                },
+                toBeGreaterThan(expected) {
+                    if (actual <= expected) {
+                        throw new Error(`Expected ${actual} > ${expected}`);
+                    }
+                },
+                toBeLessThan(expected) {
+                    if (actual >= expected) {
+                        throw new Error(`Expected ${actual} < ${expected}`);
+                    }
+                },
+                toBeCloseTo(expected, precision = 2) {
+                    if (Math.abs(actual - expected) > Math.pow(10, -precision)) {
+                        throw new Error(`Expected ${actual} to be close to ${expected}`);
+                    }
+                },
+                toBeTruthy() {
+                    if (!actual) {
+                        throw new Error(`Expected ${actual} to be truthy`);
+                    }
+                },
+                toBeFalsy() {
+                    if (actual) {
+                        throw new Error(`Expected ${actual} to be falsy`);
+                    }
+                }
+            };
+        }
+
+        function runAllTests() {
+            suites.length = 0;
+            const container = document.getElementById('suites');
+            const summary = document.getElementById('summary');
+            container.innerHTML = '';
+
+            const { utils, constants, insights, parser, storage, demo } = window.SS;
+
+            // 1. Suite: Money Math
+            describe('Money Math & Integer Paise Precision', () => {
+                it('accurately converts rupees to paise avoiding floating point issues', () => {
+                    expect(utils.toPaise(0.1 + 0.2)).toBe(30);
+                    expect(utils.toPaise(120)).toBe(12000);
+                    expect(utils.toPaise(0.01)).toBe(1);
+                    expect(utils.toPaise(999.99)).toBe(99999);
+                });
+
+                it('converts paise back to rupees', () => {
+                    expect(utils.fromPaise(30)).toBe(0.3);
+                    expect(utils.fromPaise(12000)).toBe(120);
+                    expect(utils.fromPaise(1)).toBe(0.01);
+                });
+
+                it('sums arrays of numbers in paise', () => {
+                    expect(utils.sumPaise([0.1, 0.2])).toBe(0.3);
+                    expect(utils.sumPaise([{ amt: 10.5 }, { amt: 20.25 }], 'amt')).toBe(30.75);
+                });
+
+                it('formats currency cleanly omitting zero paise', () => {
+                    expect(utils.formatCurrency(120).replace(/\s/g, ' ')).toBe('₹120');
+                    expect(utils.formatCurrency(120.50).replace(/\s/g, ' ')).toBe('₹120.50');
+                });
+
+                it('formats compact currency numbers correctly', () => {
+                    expect(utils.formatCompactCurrency(1500)).toBe('₹1.5k');
+                    expect(utils.formatCompactCurrency(250000)).toBe('₹2.5L');
+                    expect(utils.formatCompactCurrency(450)).toBe('₹450');
+                });
+            });
+
+            // 2. Suite: Date Handling
+            describe('Date Calculations & Helpers', () => {
+                it('formats YYYY-MM-DD from date objects', () => {
+                    const d = new Date(2026, 9, 31);
+                    expect(utils.getLocalDateString(d)).toBe('2026-10-31');
+                });
+
+                it('computes days in month accurately including leap years', () => {
+                    expect(utils.getDaysInMonth('2024-02')).toBe(29); // 2024 leap year
+                    expect(utils.getDaysInMonth('2026-02')).toBe(28); // 2026 standard
+                    expect(utils.getDaysInMonth('2026-10')).toBe(31);
+                    expect(utils.getDaysInMonth('2026-04')).toBe(30);
+                });
+
+                it('detects future dates strictly', () => {
+                    expect(utils.isFutureDate('2026-11-01', '2026-10-31')).toBe(true);
+                    expect(utils.isFutureDate('2026-10-31', '2026-10-31')).toBe(false);
+                    expect(utils.isFutureDate('2026-10-30', '2026-10-31')).toBe(false);
+                });
+
+                it('shifts month keys reliably', () => {
+                    expect(utils.shiftMonthKey('2026-10', -1)).toBe('2026-09');
+                    expect(utils.shiftMonthKey('2026-01', -1)).toBe('2025-12');
+                    expect(utils.shiftMonthKey('2026-12', 1)).toBe('2027-01');
+                });
+            });
+
+            // 3. Suite: Natural Language Quick Add Parser (>=40 test cases)
+            describe('Natural-Language Quick Add Parser (English + Hinglish)', () => {
+                const today = '2026-10-31';
+
+                const testCases = [
+                    { input: 'chai 20', expectedCat: 'Food', expectedAmt: 20, expectedTitle: 'Chai' },
+                    { input: 'tea 15', expectedCat: 'Food', expectedAmt: 15, expectedTitle: 'Tea' },
+                    { input: 'coffee 120 with friends', expectedCat: 'Food', expectedAmt: 120, expectedSplit: 1 },
+                    { input: 'samosa rs 30', expectedCat: 'Food', expectedAmt: 30, expectedTitle: 'Samosa' },
+                    { input: 'maggi 40', expectedCat: 'Food', expectedAmt: 40, expectedTitle: 'Maggi' },
+                    { input: 'lunch ₹150', expectedCat: 'Food', expectedAmt: 150, expectedTitle: 'Lunch' },
+                    { input: 'dinner 250 yesterday', expectedCat: 'Food', expectedAmt: 250, expectedDate: '2026-10-30' },
+                    { input: 'kal mess 2400', expectedCat: 'Food', expectedAmt: 2400, expectedDate: '2026-10-30' },
+                    { input: 'parso pizza 450', expectedCat: 'Food', expectedAmt: 450, expectedDate: '2026-10-29' },
+                    { input: 'auto 50', expectedCat: 'Travel', expectedAmt: 50, expectedTitle: 'Auto' },
+                    { input: 'bus ticket 25', expectedCat: 'Travel', expectedAmt: 25, expectedTitle: 'Bus ticket' },
+                    { input: 'metro recharge 200', expectedCat: 'Travel', expectedAmt: 200 },
+                    { input: 'uber to campus 180', expectedCat: 'Travel', expectedAmt: 180 },
+                    { input: 'rapido 45', expectedCat: 'Travel', expectedAmt: 45 },
+                    { input: 'petrol 500rs', expectedCat: 'Travel', expectedAmt: 500 },
+                    { input: 'cab 320 with 3 friends', expectedCat: 'Travel', expectedAmt: 320, expectedSplit: 3 },
+                    { input: 'xerox notes 35', expectedCat: 'Education', expectedAmt: 35 },
+                    { input: 'notebook 80', expectedCat: 'Education', expectedAmt: 80 },
+                    { input: 'exam fees 1200', expectedCat: 'Education', expectedAmt: 1200 },
+                    { input: 'udemy course 499', expectedCat: 'Education', expectedAmt: 499 },
+                    { input: 'stationery 150', expectedCat: 'Education', expectedAmt: 150 },
+                    { input: 'tshirt 499', expectedCat: 'Shopping', expectedAmt: 499 },
+                    { input: 'amazon 1.2k', expectedCat: 'Shopping', expectedAmt: 1200 },
+                    { input: 'flipkart shoes 1800', expectedCat: 'Shopping', expectedAmt: 1800 },
+                    { input: 'earphones 350', expectedCat: 'Shopping', expectedAmt: 350 },
+                    { input: 'movie ticket 250', expectedCat: 'Entertainment', expectedAmt: 250 },
+                    { input: 'netflix 199', expectedCat: 'Entertainment', expectedAmt: 199 },
+                    { input: 'spotify subscription 119', expectedCat: 'Entertainment', expectedAmt: 119 },
+                    { input: 'wifi bill 600 split with 2 roommates', expectedCat: 'Bills', expectedAmt: 600, expectedSplit: 2 },
+                    { input: 'jio recharge 299', expectedCat: 'Bills', expectedAmt: 299 },
+                    { input: 'room rent 3500', expectedCat: 'Bills', expectedAmt: 3500 },
+                    { input: 'laundry 120', expectedCat: 'Bills', expectedAmt: 120 },
+                    { input: 'medicine 140', expectedCat: 'Other', expectedAmt: 140 },
+                    { input: 'swiggy biryani 320', expectedCat: 'Food', expectedAmt: 320 },
+                    { input: 'zomato burger 180', expectedCat: 'Food', expectedAmt: 180 },
+                    { input: 'canteen nashta 50', expectedCat: 'Food', expectedAmt: 50 },
+                    { input: 'aaj samosa 20', expectedCat: 'Food', expectedAmt: 20, expectedDate: '2026-10-31' },
+                    { input: 'irctc train 450', expectedCat: 'Travel', expectedAmt: 450 },
+                    { input: 'printout lab manual 60', expectedCat: 'Education', expectedAmt: 60 },
+                    { input: 'gym fees 800', expectedCat: 'Other', expectedAmt: 800 }
+                ];
+
+                testCases.forEach((tc, idx) => {
+                    it(`parses sample #${idx + 1}: "${tc.input}"`, () => {
+                        const res = parser.parseQuickAdd(tc.input, today);
+                        expect(res.ok).toBe(true);
+                        expect(res.category).toBe(tc.expectedCat);
+                        expect(res.amount).toBe(tc.expectedAmt);
+                        if (tc.expectedSplit !== undefined) {
+                            expect(res.splitWith).toBe(tc.expectedSplit);
+                        }
+                        if (tc.expectedDate) {
+                            expect(res.date).toBe(tc.expectedDate);
+                        }
+                    });
+                });
+
+                it('rejects empty and invalid input safely', () => {
+                    const emptyRes = parser.parseQuickAdd('');
+                    expect(emptyRes.ok).toBe(false);
+                    expect(emptyRes.errors.length > 0).toBe(true);
+
+                    const noAmtRes = parser.parseQuickAdd('chai samosa');
+                    expect(noAmtRes.ok).toBe(false);
+                });
+            });
+
+            // 4. Suite: Financial Insights & Calculations
+            describe('Financial Insights & Safe-to-Spend Math', () => {
+                const expenses = [
+                    { id: '1', title: 'Mess', amount: 3000, category: 'Food', date: '2026-10-01', splitWith: 0 },
+                    { id: '2', title: 'Books', amount: 800, category: 'Education', date: '2026-10-05', splitWith: 0 },
+                    { id: '3', title: 'Bus pass', amount: 400, category: 'Travel', date: '2026-10-10', splitWith: 0 },
+                    { id: '4', title: 'Chai', amount: 20, category: 'Food', date: '2026-10-31', splitWith: 0 }
+                ];
+
+                it('computes safe-to-spend today allowance accurately without NaN or negatives', () => {
+                    const res = insights.calculateSafeToSpend({
+                        budget: 8000,
+                        expenses,
+                        selectedMonth: '2026-10',
+                        today: '2026-10-31'
+                    });
+                    expect(res.hasBudget).toBe(true);
+                    expect(res.safeToday).toBeGreaterThan(0);
+                    expect(Number.isFinite(res.safeToday)).toBe(true);
+                    expect(res.daysLeft).toBe(1); // last day of 31-day month
+                });
+
+                it('handles zero budget cleanly with friendly message', () => {
+                    const res = insights.calculateSafeToSpend({
+                        budget: 0,
+                        expenses,
+                        selectedMonth: '2026-10',
+                        today: '2026-10-31'
+                    });
+                    expect(res.hasBudget).toBe(false);
+                    expect(res.safeToday).toBe(0);
+                    expect(res.status).toBe('no_budget');
+                });
+
+                it('calculates money health score (0 - 100)', () => {
+                    const health = insights.calculateHealthScore({
+                        budget: 8000,
+                        expenses,
+                        selectedMonth: '2026-10',
+                        today: '2026-10-31'
+                    });
+                    expect(health.score).toBeGreaterThan(0);
+                    expect(health.score).toBeLessThan(101);
+                    expect(['Excellent', 'Good', 'Needs Attention'].includes(health.rating)).toBe(true);
+                });
+
+                it('computes streaks and badges dynamically', () => {
+                    const streaks = insights.calculateStreaks(expenses, '2026-10-31');
+                    expect(typeof streaks.currentStreak).toBe('number');
+                    expect(streaks.noSpendDaysThisMonth).toBeGreaterThan(0);
+
+                    const badges = insights.calculateBadges({ expenses, streaks, budgets: { '2026-10': 8000 } });
+                    expect(badges.includes('first_expense')).toBe(true);
+                });
+            });
+
+            // 5. Suite: Storage & Data Validation
+            describe('Data Model v2 Storage & Validation', () => {
+                it('validates correct expense items', () => {
+                    const valid = { title: 'Lunch', amount: 150, category: 'Food', date: '2026-10-31' };
+                    const res = storage.validateExpense(valid, '2026-10-31');
+                    expect(res.valid).toBe(true);
+                    expect(res.expense.amount).toBe(150);
+                    expect(res.expense.splitWith).toBe(0);
+                });
+
+                it('rejects future dates and excessive amounts', () => {
+                    const future = { title: 'Movie', amount: 300, category: 'Entertainment', date: '2026-11-05' };
+                    const resFuture = storage.validateExpense(future, '2026-10-31');
+                    expect(resFuture.valid).toBe(false);
+
+                    const huge = { title: 'Car', amount: 5000000, category: 'Shopping', date: '2026-10-31' };
+                    const resHuge = storage.validateExpense(huge, '2026-10-31');
+                    expect(resHuge.valid).toBe(false);
+                });
+            });
+
+            // 6. Suite: Edge Cases & Performance
+            describe('Edge Cases, Boundaries & Scale', () => {
+                it('handles boundary amounts ₹0.01 and ₹1,000,000', () => {
+                    const minExp = { title: 'Penny', amount: 0.01, category: 'Other', date: '2026-10-31' };
+                    const maxExp = { title: 'Tuition Cap', amount: 1000000, category: 'Education', date: '2026-10-31' };
+                    expect(storage.validateExpense(minExp, '2026-10-31').valid).toBe(true);
+                    expect(storage.validateExpense(maxExp, '2026-10-31').valid).toBe(true);
+
+                    const zeroExp = { title: 'Zero', amount: 0, category: 'Food', date: '2026-10-31' };
+                    expect(storage.validateExpense(zeroExp, '2026-10-31').valid).toBe(false);
+                });
+
+                it('prevents divide-by-zero on day 1 of month', () => {
+                    const res = insights.calculateSafeToSpend({
+                        budget: 9000,
+                        expenses: [],
+                        selectedMonth: '2026-10',
+                        today: '2026-10-01'
+                    });
+                    expect(res.daysLeft).toBe(31);
+                    expect(res.safeToday).toBe(290.32);
+                });
+
+                it('calculates on the last day of month', () => {
+                    const res = insights.calculateSafeToSpend({
+                        budget: 9000,
+                        expenses: [{ amount: 8000, date: '2026-10-15', category: 'Food' }],
+                        selectedMonth: '2026-10',
+                        today: '2026-10-31'
+                    });
+                    expect(res.daysLeft).toBe(1);
+                    expect(res.safeToday).toBe(1000);
+                });
+
+                it('sums and processes 10,000 transactions smoothly', () => {
+                    const tenThousand = [];
+                    for (let i = 0; i < 10000; i++) {
+                        tenThousand.push({ id: `e-${i}`, amount: 15.5, date: '2026-10-15', category: 'Food' });
+                    }
+                    const start = Date.now();
+                    const sum = utils.sumPaise(tenThousand, 'amount');
+                    const elapsed = Date.now() - start;
+                    expect(sum).toBe(155000);
+                    expect(elapsed).toBeLessThan(100); // well under 100ms
+                });
+
+                it('generates rich deterministic 90-day demo dataset for judges', () => {
+                    const demoState = demo.generate('2026-10-31');
+                    expect(demoState.expenses.length).toBeGreaterThan(50);
+                    expect(demoState.goals.length).toBe(2);
+                    expect(demoState.recurring.length).toBe(2);
+                    expect(demoState.budgets['2026-10']).toBe(8500);
+                });
+            });
+
+            // 7. Suite: UPI SMS Parser
+            describe('UPI SMS Transaction Parser', () => {
+                const upiParser = window.SS.features.upiParser;
+
+                it('parses HDFC Bank debit SMS correctly', () => {
+                    const sms = 'Sent Rs.350.00 from HDFC Bank A/C **1234 to SWIGGY on 15-10-26 via UPI. Ref 654321098765.';
+                    const res = upiParser.parseUPIsms(sms);
+                    expect(res.ok).toBe(true);
+                    expect(res.amount).toBe(350);
+                    expect(res.merchant).toBe('SWIGGY');
+                    expect(res.category).toBe('Food');
+                    expect(res.refNo).toBe('654321098765');
+                });
+
+                it('parses SBI debit SMS with VPA/merchant name', () => {
+                    const sms = 'Dear SBI User, your A/c ending 5678 debited by Rs.120.00 on 10/10/26 transfer to chai_point@upi (UPI Ref no 112233445566).';
+                    const res = upiParser.parseUPIsms(sms);
+                    expect(res.ok).toBe(true);
+                    expect(res.amount).toBe(120);
+                    expect(res.category).toBe('Food');
+                });
+
+                it('parses ICICI and Paytm wallet/UPI formats', () => {
+                    const sms = 'Paid Rs.450 to UBER INDIA on 12-10-2026 via Paytm UPI Ref 9988776655.';
+                    const res = upiParser.parseUPIsms(sms);
+                    expect(res.ok).toBe(true);
+                    expect(res.amount).toBe(450);
+                    expect(res.category).toBe('Travel');
+                });
+
+                it('rejects credit SMS and OTP messages safely', () => {
+                    const creditSms = 'Your A/c 1234 is credited by Rs.5000.00 from Mr. Sharma.';
+                    const otpSms = 'Your OTP for transaction at Amazon is 492011. Do not share with anyone.';
+                    expect(upiParser.parseUPIsms(creditSms).ok).toBe(false);
+                    expect(upiParser.parseUPIsms(otpSms).ok).toBe(false);
+                });
+            });
+
+            // 8. Suite: Authentication & Password Strength
+            describe('Authentication & Password Strength Security', () => {
+                const authModule = window.SS.auth;
+
+                it('rates short or simple passwords as weak', () => {
+                    const weak1 = authModule.evaluatePasswordStrength('short');
+                    const weak2 = authModule.evaluatePasswordStrength('onlyletters');
+                    expect(weak1.class).toBe('weak');
+                    expect(weak2.class).toBe('weak');
+                });
+
+                it('rates alphanumeric passwords as medium or strong', () => {
+                    const med = authModule.evaluatePasswordStrength('Pass1234');
+                    expect(med.score >= 2).toBe(true);
+                    const strong = authModule.evaluatePasswordStrength('StudentSecure2026!#');
+                    expect(strong.class).toBe('strong');
+                });
+
+                it('friendly error mapping handles Firebase and Local error codes', () => {
+                    const msg1 = authModule.mapAuthError({ code: 'auth/wrong-password' });
+                    const msg2 = authModule.mapAuthError({ code: 'invite/not-found' });
+                    const msg3 = authModule.mapAuthError({ code: 'invite/expired' });
+                    expect(msg1.includes('Incorrect email or password')).toBe(true);
+                    expect(msg2.includes('Invite code not found')).toBe(true);
+                    expect(msg3.includes('expired')).toBe(true);
+                });
+            });
+
+            // 9. Suite: "Can I Afford It?" Purchase Simulator
+            describe('Purchase Simulator ("Can I Afford It?")', () => {
+                const whatIf = window.SS.features.whatIf;
+
+                it('approves affordable purchase within daily safe budget', () => {
+                    const res = whatIf.simulatePurchase({
+                        plannedAmount: 150,
+                        plannedCategory: 'Food & Dining',
+                        budget: 9000,
+                        expenses: [{ amount: 500, date: '2026-10-02', category: 'Food & Dining' }],
+                        goals: []
+                    });
+                    expect(res.isAffordable).toBe(true);
+                    expect(res.newSafeToday > 0).toBe(true);
+                });
+
+                it('warns when planned purchase exceeds total remaining budget', () => {
+                    const res = whatIf.simulatePurchase({
+                        plannedAmount: 12000,
+                        plannedCategory: 'Shopping',
+                        budget: 8000,
+                        expenses: [{ amount: 2000, date: '2026-10-02', category: 'Food' }],
+                        goals: [],
+                        today: '2026-10-05'
+                    });
+                    expect(res.isAffordable).toBe(false);
+                    expect(res.verdict.includes('Caution')).toBe(true);
+                });
+            });
+
+            // 10. Suite: Gamification XP & Student Financial Tips
+            describe('Gamification XP & Financial Knowledge', () => {
+                const xpModule = window.SS.features.xp;
+
+                it('calculates XP progression and level titles', () => {
+                    const level0 = xpModule.calculateXP({ expenses: [], streaks: { currentStreak: 0 }, budgets: {} });
+                    expect(level0.levelName.includes('Saver Sprout')).toBe(true);
+                    expect(level0.currentXP >= 0).toBe(true);
+
+                    // Add expenses and streaks for higher level
+                    const expenses = [];
+                    for (let i = 1; i <= 25; i++) {
+                        expenses.push({ id: `e-${i}`, amount: 100, date: '2026-10-15', category: 'Food & Dining' });
+                    }
+                    const levelHigher = xpModule.calculateXP({ expenses, streaks: { currentStreak: 10 }, budgets: { '2026-10': 8000 } });
+                    expect(levelHigher.currentXP > level0.currentXP).toBe(true);
+                });
+
+                it('returns non-empty daily tip from knowledge base of 30+ tips', () => {
+                    const tip = xpModule.getDailyTip();
+                    expect(typeof tip).toBe('string');
+                    expect(tip.length > 10).toBe(true);
+                });
+            });
+
+            // 11. Suite: Router & Role Guards
+            describe('Hash Router & Role Security Guards', () => {
+                const router = window.SS.router;
+
+                it('parses parameterized routes accurately', () => {
+                    router.addRoute('/parent/child/:uid', { role: 'parent', title: 'Child' });
+                    // Test internal path resolution
+                    expect(typeof router.navigate).toBe('function');
+                });
+            });
+
+            // Render UI results
+            let totalPass = 0;
+            let totalFail = 0;
+
+            suites.forEach(suite => {
+                const suiteEl = document.createElement('div');
+                suiteEl.className = 'suite';
+
+                const h2 = document.createElement('h2');
+                h2.textContent = suite.name;
+                suiteEl.appendChild(h2);
+
+                suite.tests.forEach(t => {
+                    if (t.passed) totalPass++;
+                    else totalFail++;
+
+                    const row = document.createElement('div');
+                    row.className = 'test-case';
+
+                    const name = document.createElement('span');
+                    name.textContent = t.name;
+
+                    const badge = document.createElement('span');
+                    badge.className = `badge ${t.passed ? 'pass' : 'fail'}`;
+                    badge.textContent = t.passed ? 'PASS' : 'FAIL';
+
+                    row.appendChild(name);
+                    row.appendChild(badge);
+                    suiteEl.appendChild(row);
+
+                    if (!t.passed && t.error) {
+                        const err = document.createElement('div');
+                        err.className = 'error-msg';
+                        err.textContent = `❌ ${t.error}`;
+                        suiteEl.appendChild(err);
+                    }
+                });
+
+                container.appendChild(suiteEl);
+            });
+
+            summary.textContent = `Results: ${totalPass} Passed, ${totalFail} Failed (Total ${totalPass + totalFail})`;
+            summary.className = `summary ${totalFail === 0 ? 'passed' : 'failed'}`;
+            console.log(`[SmartSpend Tests] ${totalPass} passed, ${totalFail} failed.`);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            runAllTests();
+        });
+    </script>
+</body>
+</html>

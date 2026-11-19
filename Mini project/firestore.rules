@@ -1,0 +1,165 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -------------------------------------------------------------------------
+    // Helper Functions
+    // -------------------------------------------------------------------------
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function linkPath(childUid) {
+      return /databases/$(database)/documents/links/$(childUid + '_' + request.auth.uid);
+    }
+
+    // Returns true only if an active, non-revoked link document exists between student and requesting parent
+    function activeLink(childUid) {
+      return signedIn() && exists(linkPath(childUid))
+        && get(linkPath(childUid)).data.status == 'active';
+    }
+
+    // Full share grants itemized expense visibility; summary share allows only aggregated figures
+    function fullShare(childUid) {
+      return activeLink(childUid) && get(linkPath(childUid)).data.shareLevel == 'full';
+    }
+
+    function validStr(v, min, max) {
+      return v is string && v.size() >= min && v.size() <= max;
+    }
+
+    // -------------------------------------------------------------------------
+    // Users Collection: /users/{uid}
+    // -------------------------------------------------------------------------
+    match /users/{uid} {
+      // Child or actively linked parent can read user profile
+      allow read: if isSelf(uid) || activeLink(uid);
+      
+      // Initial registration: role must be either student or parent and name between 1-80 chars
+      allow create: if isSelf(uid) 
+                    && request.resource.data.role in ['student', 'parent']
+                    && validStr(request.resource.data.name, 1, 80);
+      
+      // Profile updates: role is strictly IMMUTABLE once set
+      allow update: if isSelf(uid) && request.resource.data.role == resource.data.role;
+      allow delete: if false;
+
+      // Expenses Subcollection: /users/{uid}/expenses/{id}
+      match /expenses/{id} {
+        // Parent can ONLY read if student explicitly granted fullShare
+        allow read: if isSelf(uid) || fullShare(uid);
+        
+        // Only student can create, edit, or delete their own expenses (parent is strictly read-only)
+        allow create, update: if isSelf(uid)
+          && request.resource.data.amount is number
+          && request.resource.data.amount > 0 && request.resource.data.amount <= 1000000
+          && validStr(request.resource.data.title, 1, 80);
+        allow delete: if isSelf(uid);
+      }
+
+      // Aggregated summary for summary-level sharing
+      match /summary/{id} {
+        allow read: if isSelf(uid) || activeLink(uid);
+        allow write: if isSelf(uid);
+      }
+
+      // Monthly Budgets
+      match /budgets/{id} {
+        allow read: if isSelf(uid) || activeLink(uid);
+        // Student can set budget; parent with active link can adjust advisory total
+        allow write: if isSelf(uid) || activeLink(uid);
+      }
+
+      // Advisory Parent Controls: /users/{uid}/parentControls/{parentUid}
+      match /parentControls/{parentUid} {
+        allow read: if isSelf(uid) || isSelf(parentUid);
+        allow write: if isSelf(parentUid) && activeLink(uid);
+      }
+
+      // Money Requests: /users/{uid}/requests/{id}
+      match /requests/{id} {
+        allow read: if isSelf(uid) || activeLink(uid);
+        allow create: if isSelf(uid) && request.resource.data.amount is number && request.resource.data.amount > 0;
+        
+        // Parent update: can ONLY alter decision fields (status, parentNote, decidedAt, decidedBy, approvedAmount)
+        // Child update: can ONLY alter the applied flag once approved
+        allow update: if (activeLink(uid) 
+                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'parentNote', 'decidedAt', 'decidedBy', 'approvedAmount'])
+                         && request.resource.data.status in ['approved', 'declined'])
+                      || (isSelf(uid) 
+                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['applied']));
+      }
+
+      // Idempotent Alerts: /users/{uid}/alerts/{id}
+      match /alerts/{id} {
+        allow read: if isSelf(uid) || activeLink(uid);
+        allow create: if isSelf(uid);
+        // Parent can only update the readBy map
+        allow update: if activeLink(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']);
+      }
+
+      // Parent-Child Challenges: /users/{uid}/challenges/{id}
+      match /challenges/{id} {
+        allow read: if isSelf(uid) || activeLink(uid);
+        // Actively linked parent can offer a challenge
+        allow create: if activeLink(uid);
+        // Student responds or updates progress; parent can review
+        allow update: if isSelf(uid) || activeLink(uid);
+      }
+
+      // Private student goals, recurring subscriptions, preferences
+      match /{other=**} {
+        allow read, write: if isSelf(uid);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // Invites Collection: /invites/{code}
+    // -------------------------------------------------------------------------
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow list: if false; // Scanners cannot enumerate codes
+      allow create: if signedIn() && request.resource.data.childUid == request.auth.uid
+                    && request.resource.data.used == false
+                    && request.resource.data.expiresAt > request.time;
+      // Single-use enforcement: can only be updated from used:false to used:true
+      allow update: if signedIn() && resource.data.used == false
+                    && request.resource.data.used == true
+                    && request.resource.data.usedBy == request.auth.uid;
+      allow delete: if signedIn() && resource.data.childUid == request.auth.uid;
+    }
+
+    // -------------------------------------------------------------------------
+    // Links Collection: /links/{linkId}
+    // -------------------------------------------------------------------------
+    match /links/{linkId} {
+      // Query rule: permits reading links where user is either the student or the parent
+      allow read: if signedIn() && (resource.data.childUid == request.auth.uid
+                                 || resource.data.parentUid == request.auth.uid);
+      
+      // Link creation requires a valid, unexpired, matching invite code
+      allow create: if signedIn()
+        && request.resource.data.parentUid == request.auth.uid
+        && linkId == request.resource.data.childUid + '_' + request.auth.uid
+        && request.resource.data.status == 'active'
+        && exists(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode))
+        && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.childUid == request.resource.data.childUid
+        && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.expiresAt > request.time;
+
+      // Student controls share level or revokes link
+      allow update: if signedIn() && resource.data.childUid == request.auth.uid;
+      // Either party can unlink/delete
+      allow delete: if signedIn() && (resource.data.childUid == request.auth.uid
+                                   || resource.data.parentUid == request.auth.uid);
+    }
+
+    // Default deny all other paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
